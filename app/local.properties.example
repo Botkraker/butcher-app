@@ -1,0 +1,6 @@
+## Copy this file to local.properties and fill in the values. Never commit local.properties.
+sdk.dir=/path/to/Android/Sdk
+# Neon HTTPS SQL endpoint: https://<your-neon-host>/sql
+neon.sql.url=https://PLACEHOLDER_HOST/sql
+# Connection string of the insert-only role (see neon_schema.sql)
+neon.connection.string=postgresql://app_writer:PLACEHOLDER_PASSWORD@PLACEHOLDER_HOST/PLACEHOLDER_DB?sslmode=require
