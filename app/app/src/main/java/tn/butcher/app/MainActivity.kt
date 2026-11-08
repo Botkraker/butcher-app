@@ -120,7 +120,7 @@ object T {
     const val MONTH = "شهر"
     const val SOLD = "البيع"
     const val BOUGHT = "الشراء"
-    const val NET = "البيع - الشراء - المصروف"
+    const val CASH = "فلوس الكاسة"
     const val CREDIT_GIVEN = "كريدي جديد"
     const val CREDIT_BACK = "رجّعوا"
     const val KG = "كغ"
@@ -205,7 +205,7 @@ class Repo(private val ctx: Context) {
         db.withTransaction {
             val debt = if (s.credit) dao.creditForSale(s.uuid) else null
             dao.insert(Void(newId(), "sales", s.uuid, System.currentTimeMillis()))
-            val n = Sale(newId(), s.productUuid, total, s.pricePerKg, kg, s.kind, s.credit, s.deviceTime)
+            val n = Sale(newId(), s.productUuid, total, s.pricePerKg, kg, s.kind, debt != null, s.deviceTime)
             dao.insert(n)
             if (debt != null) dao.insert(CreditEvent(newId(), debt.person, total, "debt", n.uuid, debt.deviceTime))
         }
@@ -504,7 +504,7 @@ fun SaleScreen(repo: Repo, back: () -> Unit) {
     val save: () -> Unit = {
         val p = product
         val t = totalNum
-        val who = if (credit) cleanName(person) else null
+        val who = if (credit) canonical(person, people) else null
         if (p != null && t != null && valid && who != "") {
             val k = kind
             val kg = if (discount) kgNum else null

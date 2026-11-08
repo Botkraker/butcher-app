@@ -33,7 +33,7 @@ fun CreditScreen(repo: Repo, back: () -> Unit) {
     val voided = repo.voidedIds.collectAsState(emptyList()).value.toSet()
     val live = liveCredits(events, voided)
     val owed = balances(live)
-    val people = peopleByRecent(events).sortedByDescending { owed[it] ?: 0.0 }
+    val people = peopleByRecent(live).sortedByDescending { owed[it] ?: 0.0 }
     var mode by rememberSaveable { mutableStateOf("list") }
     var person by rememberSaveable { mutableStateOf("") }
     var amount by rememberSaveable { mutableStateOf("") }
@@ -41,7 +41,7 @@ fun CreditScreen(repo: Repo, back: () -> Unit) {
     val clear = { mode = "list"; person = ""; amount = "" }
     val save: (String) -> Unit = { kind ->
         val v = a
-        val p = cleanName(person)
+        val p = canonical(person, people)
         if (v != null && v > 0 && p.isNotEmpty()) {
             scope.launch { withContext(Dispatchers.IO) { repo.addCredit(p, v, kind) } }
             clear()
@@ -71,7 +71,7 @@ fun CreditScreen(repo: Repo, back: () -> Unit) {
         "name" -> NamePicker(
             T.NEW_PERSON, person, { person = it }, people,
             back = clear, action = T.NEXT, actionEnabled = cleanName(person).isNotEmpty(),
-            onAction = { person = cleanName(person); mode = "amount" },
+            onAction = { person = canonical(person, people); mode = "amount" },
         )
         else -> Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             NumPad(Modifier.weight(1.4f).fillMaxSize(), amount) { amount = it }
@@ -245,7 +245,9 @@ fun DashboardScreen(repo: Repo, back: () -> Unit) {
     val paidBack = r3(credits.filter { it.kind == "pay" }.sumOf { it.amount })
     val totals = listOf(
         T.SOLD to sold, T.CREDIT_GIVEN to newDebt, T.CREDIT_BACK to paidBack,
-        T.BOUGHT to bought, T.GAVE to gave, T.SPEND to spent, T.NET to r3(sold - bought - spent),
+        T.BOUGHT to bought, T.GAVE to gave, T.SPEND to spent,
+        // Cash that should be in the till from these days: sales not on credit, plus credit paid back, minus money out.
+        T.CASH to r3(sold - newDebt + paidBack - gave - spent),
     )
 
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {

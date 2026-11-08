@@ -22,7 +22,7 @@ Build with Run ▶ on the same PC. Do not uninstall. Then:
 - **3.** On any name or details screen, press 🎤 and speak. The words appear in the box. If the phone says no voice, the button shows a message and nothing breaks.
 - **4.** مصروف الدار → amount → كمّل → details (or none) → سجّل. فسّخ removes the last one.
 - **5.** الشراء → type a new item → كمّل → kg, price, money given → سجّل. Come back, type the first letters: the item is suggested. Tap it: the last kg and price are filled in. Change kg, save. Next time the new kg is filled in. "خلّص برك" records money given without an item.
-- **6.** الملخّص → اليوم / 3 أيام / جمعة / شهر change the numbers.
+- **6.** الملخّص → اليوم / 3 أيام / جمعة / شهر change the numbers. "فلوس الكاسة" = sales not on credit + credit paid back − money given to the supplier − house spending.
 - **Sync.** After running the Neon SQL, press جرّب الانترنت → ابعث الكل توا: it says OK.
 
 ## Backlog (from the team review, not yet asked for)

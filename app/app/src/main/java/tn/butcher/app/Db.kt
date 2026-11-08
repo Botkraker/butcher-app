@@ -31,7 +31,7 @@ interface AppDao {
 
     @Query(
         "SELECT * FROM sales WHERE uuid NOT IN (SELECT targetUuid FROM voids WHERE targetTable = 'sales') " +
-            "ORDER BY deviceTime DESC LIMIT 1"
+            "ORDER BY deviceTime DESC, rowid DESC LIMIT 1"
     )
     fun lastLiveSale(): Flow<Sale?>
 

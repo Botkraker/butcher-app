@@ -35,6 +35,12 @@ fun balances(live: List<CreditEvent>): Map<String, Double> =
         r3(l.sumOf { if (it.kind == "pay") -it.amount else it.amount })
     }
 
+/** Reuses the spelling already saved when only case or spaces differ, so one person keeps one balance. */
+fun canonical(name: String, known: List<String>): String {
+    val n = cleanName(name)
+    return known.firstOrNull { it.equals(n, ignoreCase = true) } ?: n
+}
+
 /** Names, most recent first. Events come newest first from the DAO. */
 fun peopleByRecent(events: List<CreditEvent>): List<String> = events.map { it.person }.distinct()
 

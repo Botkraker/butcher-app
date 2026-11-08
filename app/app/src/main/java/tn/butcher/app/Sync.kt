@@ -115,9 +115,10 @@ object Neon {
     }
 }
 
-/** Sends every unsent row. Returns null when all went up, else the error text. */
+/** Sends every unsent row. Returns null when all went up, else the error text. A failed table does not stop the others. */
 suspend fun pushAll(ctx: Context): String? {
     val dao = AppDb.get(ctx).dao()
+    val errors = mutableListOf<String>()
     try {
         for (t in Neon.tables) {
             while (true) {
@@ -126,15 +127,18 @@ suspend fun pushAll(ctx: Context): String? {
                 val now = System.currentTimeMillis()
                 val qs = rows.map { Neon.query(t.name, t.cols, it.second, now) }
                 val (code, body) = Neon.post(qs)
-                if (code != 200) return "${t.name}: HTTP $code $body"
+                if (code != 200) {
+                    errors += "${t.name}: HTTP $code $body"
+                    break
+                }
                 t.mark(dao, rows.map { it.first })
                 Prefs.setLastSync(ctx, System.currentTimeMillis())
             }
         }
     } catch (e: IOException) {
-        return "${e.javaClass.simpleName}: ${e.message}"
+        errors += "${e.javaClass.simpleName}: ${e.message}"
     }
-    return null
+    return if (errors.isEmpty()) null else errors.joinToString("\n")
 }
 
 class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
