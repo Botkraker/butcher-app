@@ -1,10 +1,17 @@
 package tn.butcher.app
 
+import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
+import android.speech.RecognizerIntent
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -41,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.LayoutDirection
@@ -50,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.room.withTransaction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -68,7 +77,6 @@ object T {
     const val SAVE = "سجّل"
     const val UNDO = "فسّخ"
     const val DISCOUNT = "ريميز"
-    const val FREE = "بلاش"
     const val CREDIT = "كريدي"
     const val TOTAL = "الحساب"
     const val KILO = "الكيلو"
@@ -88,6 +96,35 @@ object T {
     const val SEND_TEST = "ابعث تجربة"
     const val LAST_SYNC = "آخر بعثة"
     const val WARN = "ما تبعثش الحساب من 3 أيام. شعّل الانترنت."
+    const val MIC = "🎤 احكي"
+    const val NO_MIC = "الصوت موش موجود في التلفون"
+    const val CREDITS = "الكريدي"
+    const val WHO = "شكون خذا بالكريدي؟"
+    const val NEW_PERSON = "+ اسم جديد"
+    const val NO_CREDIT = "ما فما حتى كريدي"
+    const val OWES = "عليه"
+    const val AMOUNT = "المبلغ"
+    const val ADD_DEBT = "زيد كريدي"
+    const val PAID_BACK = "خلّص"
+    const val SPEND = "مصروف الدار"
+    const val DETAILS = "التفاصيل (موش لازم)"
+    const val TODAY = "اليوم"
+    const val BUY = "الشراء"
+    const val WHAT_BOUGHT = "شنوّة شريت؟"
+    const val PAY_ONLY = "خلّص برك"
+    const val GAVE = "عطيت"
+    const val OWE_AFTER = "يبقى عليك"
+    const val DASH = "الملخّص"
+    const val DAYS3 = "3 أيام"
+    const val WEEK = "جمعة"
+    const val MONTH = "شهر"
+    const val SOLD = "البيع"
+    const val BOUGHT = "الشراء"
+    const val NET = "البيع - الشراء - المصروف"
+    const val CREDIT_GIVEN = "كريدي جديد"
+    const val CREDIT_BACK = "رجّعوا"
+    const val KG = "كغ"
+    const val DT = "د"
 }
 
 /** Pre-built list, added once on first run. Prices start empty; he sets them. */
@@ -116,10 +153,16 @@ fun newId(): String = UUID.randomUUID().toString()
 
 /** Every save writes to Room first, then asks the worker to sync. */
 class Repo(private val ctx: Context) {
-    private val dao = AppDb.get(ctx).dao()
+    private val db = AppDb.get(ctx)
+    private val dao = db.dao()
     val productEvents = dao.productEvents()
     val lastLiveSale = dao.lastLiveSale()
     val liveSales = dao.liveSales()
+    val creditEvents = dao.creditEvents()
+    val voidedIds = dao.voidedIds()
+    val livePurchases = dao.livePurchases()
+    val liveCashMoves = dao.liveCashMoves()
+    fun salesSince(since: Long) = dao.salesSince(since)
 
     private fun kick() = SyncWorker.enqueue(ctx)
 
@@ -146,21 +189,49 @@ class Repo(private val ctx: Context) {
         kick()
     }
 
-    suspend fun addSale(p: ProductView, kind: String, total: Double, kgTyped: Double?, credit: Boolean) {
-        val kg = kgTyped ?: (round(total / p.price * 1000) / 1000)
-        dao.insert(Sale(newId(), p.uuid, total, p.price, kg, kind, credit, System.currentTimeMillis()))
+    /** person is set for a credit sale: the sale and its debt are saved together. */
+    suspend fun addSale(p: ProductView, kind: String, total: Double, kgTyped: Double?, person: String?) {
+        val kg = kgTyped ?: r3(total / p.price)
+        val sale = Sale(newId(), p.uuid, total, p.price, kg, kind, person != null, System.currentTimeMillis())
+        db.withTransaction {
+            dao.insert(sale)
+            if (person != null) dao.insert(CreditEvent(newId(), person, total, "debt", sale.uuid, sale.deviceTime))
+        }
         kick()
     }
 
-    /** Edit is a void plus a new row, so the server keeps both. The sale keeps its time. */
+    /** Edit is a void plus a new row, so the server keeps both. The sale keeps its time. A credit sale keeps its debt. */
     suspend fun editSale(s: Sale, total: Double, kg: Double) {
-        dao.insert(Void(newId(), "sales", s.uuid, System.currentTimeMillis()))
-        dao.insert(Sale(newId(), s.productUuid, total, s.pricePerKg, kg, s.kind, s.credit, s.deviceTime))
+        db.withTransaction {
+            val debt = if (s.credit) dao.creditForSale(s.uuid) else null
+            dao.insert(Void(newId(), "sales", s.uuid, System.currentTimeMillis()))
+            val n = Sale(newId(), s.productUuid, total, s.pricePerKg, kg, s.kind, s.credit, s.deviceTime)
+            dao.insert(n)
+            if (debt != null) dao.insert(CreditEvent(newId(), debt.person, total, "debt", n.uuid, debt.deviceTime))
+        }
         kick()
     }
 
-    suspend fun undoSale(s: Sale) {
-        dao.insert(Void(newId(), "sales", s.uuid, System.currentTimeMillis()))
+    suspend fun undoSale(s: Sale) = void("sales", s.uuid)
+
+    suspend fun void(table: String, uuid: String) {
+        dao.insert(Void(newId(), table, uuid, System.currentTimeMillis()))
+        kick()
+    }
+
+    suspend fun addCredit(person: String, amount: Double, kind: String) {
+        dao.insert(CreditEvent(newId(), person, amount, kind, null, System.currentTimeMillis()))
+        kick()
+    }
+
+    /** Money taken from the till for the house. Saved as a negative cash move. */
+    suspend fun addSpending(amount: Double, details: String) {
+        dao.insert(CashMove(newId(), -amount, details, System.currentTimeMillis()))
+        kick()
+    }
+
+    suspend fun addPurchase(item: String, kg: Double, pricePerKg: Double, paid: Double) {
+        dao.insert(Purchase(newId(), item, kg, pricePerKg, r3(kg * pricePerKg), paid, System.currentTimeMillis()))
         kick()
     }
 }
@@ -220,8 +291,8 @@ fun Bar(content: @Composable RowScope.() -> Unit) {
 }
 
 @Composable
-fun Small(text: String, enabled: Boolean = true, width: Int = 110, onClick: () -> Unit) {
-    Plain(text, Modifier.width(width.dp).fillMaxHeight(), enabled = enabled, size = 18.sp, onClick = onClick)
+fun Small(text: String, enabled: Boolean = true, on: Boolean = false, width: Int = 110, onClick: () -> Unit) {
+    Plain(text, Modifier.width(width.dp).fillMaxHeight(), on = on, enabled = enabled, size = 18.sp, onClick = onClick)
 }
 
 @Composable
@@ -240,6 +311,10 @@ fun App(repo: Repo) {
             "sale" -> SaleScreen(repo, back)
             "products" -> ProductsScreen(repo, back)
             "history" -> HistoryScreen(repo, back)
+            "credits" -> CreditScreen(repo, back)
+            "buy" -> PurchaseScreen(repo, back)
+            "spend" -> SpendingScreen(repo, back)
+            "dash" -> DashboardScreen(repo, back)
             "debug" -> DebugScreen(back)
             else -> HomeScreen { screen = it }
         }
@@ -256,9 +331,17 @@ fun HomeScreen(go: (String) -> Unit) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Plain(T.SELL, Modifier.weight(2f).fillMaxSize(), size = 72.sp) { go("sale") }
-            Column(Modifier.weight(1f).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Plain(T.GOODS, Modifier.weight(1f).fillMaxWidth(), size = 40.sp) { go("products") }
-                Plain(T.HISTORY, Modifier.weight(1f).fillMaxWidth(), size = 40.sp) { go("history") }
+            Column(Modifier.weight(1.4f).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                val buttons = listOf(
+                    listOf(T.GOODS to "products", T.HISTORY to "history"),
+                    listOf(T.CREDITS to "credits", T.BUY to "buy"),
+                    listOf(T.SPEND to "spend", T.DASH to "dash"),
+                )
+                buttons.forEach { row ->
+                    Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        row.forEach { (label, target) -> Plain(label, Modifier.weight(1f).fillMaxSize(), size = 26.sp) { go(target) } }
+                    }
+                }
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -273,32 +356,88 @@ fun HomeScreen(go: (String) -> Unit) {
     }
 }
 
-/** Fixed grid, never scrolls. Green has a price, grey has none. Extra products go to the next page. */
+/** Fixed grid, never scrolls. Extra items go to the next page. */
 @Composable
-fun ProductGrid(products: List<ProductView>, modifier: Modifier, pickable: (ProductView) -> Boolean = { true }, onTap: (ProductView) -> Unit) {
-    val rows = 4
-    val cols = 5
+fun <E> PagedGrid(items: List<E>, rows: Int, cols: Int, modifier: Modifier, cell: @Composable (E, Modifier) -> Unit) {
     val slots = rows * cols
-    val needMore = products.size > slots
+    val needMore = items.size > slots
     val pageSize = if (needMore) slots - 1 else slots
-    val pages = ceil(products.size.toDouble() / pageSize).toInt().coerceAtLeast(1)
+    val pages = ceil(items.size.toDouble() / pageSize).toInt().coerceAtLeast(1)
     var page by rememberSaveable { mutableStateOf(0) }
-    val shown = products.drop(page.coerceAtMost(pages - 1) * pageSize).take(pageSize)
-    val cells = buildList<@Composable (Modifier) -> Unit> {
-        shown.forEach { p ->
-            add { m -> Plain(p.name, m, enabled = pickable(p), dim = p.price <= 0, fill = Color(0xFFA5D6A7), size = 20.sp) { onTap(p) } }
-        }
-        if (needMore) add { m -> Plain(T.MORE, m, size = 20.sp) { page = (page + 1) % pages } }
-    }
+    val shown = items.drop(page.coerceAtMost(pages - 1) * pageSize).take(pageSize)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         for (r in 0 until rows) {
             Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 for (c in 0 until cols) {
-                    val cell = cells.getOrNull(r * cols + c)
-                    if (cell != null) cell(Modifier.weight(1f).fillMaxSize())
-                    else Spacer(Modifier.weight(1f))
+                    val i = r * cols + c
+                    when {
+                        i < shown.size -> cell(shown[i], Modifier.weight(1f).fillMaxSize())
+                        needMore && i == slots - 1 -> Plain(T.MORE, Modifier.weight(1f).fillMaxSize(), size = 20.sp) { page = (page + 1) % pages }
+                        else -> Spacer(Modifier.weight(1f))
+                    }
                 }
             }
+        }
+    }
+}
+
+/** Green has a price, grey has none. */
+@Composable
+fun ProductGrid(products: List<ProductView>, modifier: Modifier, pickable: (ProductView) -> Boolean = { true }, onTap: (ProductView) -> Unit) {
+    PagedGrid(products, 4, 5, modifier) { p, m ->
+        Plain(p.name, m, enabled = pickable(p), dim = p.price <= 0, fill = Color(0xFFA5D6A7), size = 20.sp) { onTap(p) }
+    }
+}
+
+/** Opens the phone's own voice typing in Tunisian Arabic. No internet or no voice app: shows a message. */
+@Composable
+fun MicButton(onText: (String) -> Unit) {
+    val ctx = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        if (r.resultCode == Activity.RESULT_OK) {
+            r.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let(onText)
+        }
+    }
+    Small(T.MIC, width = 100) {
+        val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ar-TN")
+        try {
+            launcher.launch(i)
+        } catch (e: ActivityNotFoundException) {
+            Toast.makeText(ctx, T.NO_MIC, Toast.LENGTH_LONG).show()
+        }
+    }
+}
+
+/** One text box, voice, and old names as buttons. Tapping an old name is enough; no typing. */
+@Composable
+fun NamePicker(
+    title: String,
+    value: String,
+    onChange: (String) -> Unit,
+    suggestions: List<String>,
+    back: () -> Unit,
+    action: String,
+    actionEnabled: Boolean,
+    onAction: () -> Unit,
+    onPick: (String) -> Unit = onChange,
+    appendVoice: Boolean = false,
+    extra: @Composable RowScope.() -> Unit = {},
+) {
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Bar {
+            Small(T.BACK, onClick = back)
+            Title(title, Modifier.weight(1f))
+            extra()
+            MicButton { said -> onChange(if (appendVoice) cleanName("$value $said") else cleanName(said)) }
+            Small(action, enabled = actionEnabled, onClick = onAction)
+        }
+        OutlinedTextField(value, onChange, singleLine = true, textStyle = TextStyle(fontSize = 24.sp), modifier = Modifier.fillMaxWidth())
+        val q = cleanName(value)
+        val shown = suggestions.filter { q.isEmpty() || it.contains(q, ignoreCase = true) }
+        PagedGrid(shown, 2, 4, Modifier.weight(1f).fillMaxWidth()) { s, m ->
+            Plain(s, m, on = s == q, size = 20.sp) { onPick(s) }
         }
     }
 }
@@ -341,26 +480,39 @@ fun SaleScreen(repo: Repo, back: () -> Unit) {
     val scope = rememberCoroutineScope()
     val products = foldProducts(repo.productEvents.collectAsState(emptyList()).value).filter { !it.hidden }
     val lastSale by repo.lastLiveSale.collectAsState(null)
+    val people = peopleByRecent(repo.creditEvents.collectAsState(emptyList()).value)
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     var discount by rememberSaveable { mutableStateOf(false) }
-    var free by rememberSaveable { mutableStateOf(false) }
     var credit by rememberSaveable { mutableStateOf(false) }
+    var askName by rememberSaveable { mutableStateOf(false) }
+    var person by rememberSaveable { mutableStateOf("") }
     var total by rememberSaveable { mutableStateOf("") }
     var kgText by rememberSaveable { mutableStateOf("") }
     var onKg by rememberSaveable { mutableStateOf(false) }
 
-    val kind = if (free) "free" else if (discount) "discount" else "paid"
-    val showTotal = !free
-    val showKg = free || discount
-    val typingKg = free || (discount && onKg)
+    val kind = if (discount) "discount" else "paid"
+    val typingKg = discount && onKg
     val product = products.firstOrNull { it.uuid == selected }
-    val totalNum = if (free) 0.0 else num(total)
+    val totalNum = num(total)
     val kgNum = num(kgText)
-    val valid = product != null && product.price > 0 && totalNum != null && totalNum >= 0 &&
-        (kind == "paid" && totalNum > 0 || kind != "paid" && kgNum != null && kgNum > 0)
+    // Paid: total > 0. Discount: total >= 0 and the kg he really gave. Credit: total > 0.
+    val valid = product != null && product.price > 0 && totalNum != null &&
+        (if (discount) totalNum >= 0 && kgNum != null && kgNum > 0 else totalNum > 0) &&
+        (!credit || totalNum > 0)
 
-    val reset = { total = ""; kgText = ""; credit = false; discount = false; free = false; onKg = false; selected = null }
-    BackHandler(enabled = product != null) { reset() }
+    val reset = { total = ""; kgText = ""; credit = false; discount = false; onKg = false; askName = false; person = ""; selected = null }
+    val save: () -> Unit = {
+        val p = product
+        val t = totalNum
+        val who = if (credit) cleanName(person) else null
+        if (p != null && t != null && valid && who != "") {
+            val k = kind
+            val kg = if (discount) kgNum else null
+            scope.launch { withContext(Dispatchers.IO) { repo.addSale(p, k, t, kg, who) } }
+            reset()
+        }
+    }
+    BackHandler(enabled = product != null) { if (askName) askName = false else reset() }
 
     if (product == null) {
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -369,7 +521,7 @@ fun SaleScreen(repo: Repo, back: () -> Unit) {
                 Title(T.PICK, Modifier.weight(1f))
                 val s = lastSale
                 val lastName = products.firstOrNull { it.uuid == s?.productUuid }?.name ?: ""
-                Small(if (s != null) "${T.UNDO} $lastName ${s.total}" else T.UNDO, enabled = s != null, width = 240) {
+                Small(if (s != null) "${T.UNDO} $lastName ${show(s.total)}" else T.UNDO, enabled = s != null, width = 240) {
                     s?.let { scope.launch { withContext(Dispatchers.IO) { repo.undoSale(it) } } }
                 }
             }
@@ -378,27 +530,28 @@ fun SaleScreen(repo: Repo, back: () -> Unit) {
         return
     }
 
+    if (askName) {
+        NamePicker(
+            T.WHO, person, { person = it }, people,
+            back = { askName = false }, action = T.SAVE, actionEnabled = cleanName(person).isNotEmpty(), onAction = save,
+        )
+        return
+    }
+
     Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Column(Modifier.weight(1.4f).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (showTotal) Readout(T.TOTAL, total, !typingKg, Modifier.weight(0.6f).fillMaxWidth()) { onKg = false }
-            if (showKg) Readout(T.KILO, kgText, typingKg, Modifier.weight(0.6f).fillMaxWidth()) { onKg = true }
+            Readout(T.TOTAL, total, !typingKg, Modifier.weight(0.6f).fillMaxWidth()) { onKg = false }
+            if (discount) Readout(T.KILO, kgText, typingKg, Modifier.weight(0.6f).fillMaxWidth()) { onKg = true }
             if (typingKg) NumPad(Modifier.weight(3f).fillMaxWidth(), kgText) { kgText = it }
             else NumPad(Modifier.weight(3f).fillMaxWidth(), total) { total = it }
         }
         Column(Modifier.weight(1f).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Title(product.name, Modifier.fillMaxWidth())
             Plain(T.BACK, Modifier.weight(1f).fillMaxWidth(), size = 20.sp, onClick = reset)
-            Plain(T.DISCOUNT, Modifier.weight(1f).fillMaxWidth(), on = discount, size = 20.sp) { discount = !discount; free = false; onKg = false }
-            Plain(T.FREE, Modifier.weight(1f).fillMaxWidth(), on = free, size = 20.sp) { free = !free; discount = false }
+            Plain(T.DISCOUNT, Modifier.weight(1f).fillMaxWidth(), on = discount, size = 20.sp) { discount = !discount; onKg = false }
             Plain(T.CREDIT, Modifier.weight(1f).fillMaxWidth(), on = credit, size = 20.sp) { credit = !credit }
-            Plain(T.SAVE, Modifier.weight(1.5f).fillMaxWidth(), enabled = valid, size = 24.sp) {
-                val p = product
-                val t = totalNum ?: return@Plain
-                val k = kind
-                val kg = if (k == "paid") null else kgNum
-                val c = credit
-                scope.launch { withContext(Dispatchers.IO) { repo.addSale(p, k, t, kg, c) } }
-                reset()
+            Plain(if (credit) T.NEXT else T.SAVE, Modifier.weight(1.5f).fillMaxWidth(), enabled = valid, size = 24.sp) {
+                if (credit) askName = true else save()
             }
         }
     }

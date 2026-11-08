@@ -47,6 +47,18 @@ CREATE TABLE IF NOT EXISTS stock_counts (
   device_time timestamptz NOT NULL,
   sent_device_time timestamptz, uploaded_at timestamptz NOT NULL DEFAULT now());
 
+-- v2 (also in neon_migration_002.sql)
+CREATE TABLE IF NOT EXISTS credit_events (
+  uuid uuid PRIMARY KEY, person text NOT NULL, amount double precision NOT NULL, kind text NOT NULL,
+  sale_uuid uuid, device_time timestamptz NOT NULL,
+  sent_device_time timestamptz, uploaded_at timestamptz NOT NULL DEFAULT now());
+
+CREATE TABLE IF NOT EXISTS purchases (
+  uuid uuid PRIMARY KEY, item text NOT NULL, kg double precision NOT NULL,
+  price_per_kg double precision NOT NULL, cost double precision NOT NULL, paid double precision NOT NULL,
+  device_time timestamptz NOT NULL,
+  sent_device_time timestamptz, uploaded_at timestamptz NOT NULL DEFAULT now());
+
 -- Debug button only. Not part of the analysis.
 CREATE TABLE IF NOT EXISTS debug_pings (
   uuid uuid PRIMARY KEY, note text NOT NULL, device_time timestamptz NOT NULL,
@@ -56,5 +68,5 @@ CREATE TABLE IF NOT EXISTS debug_pings (
 CREATE ROLE app_writer LOGIN PASSWORD 'CHANGE_ME';
 GRANT USAGE ON SCHEMA public TO app_writer;
 GRANT INSERT ON product_events, supplier_events, sales, voids, carcasses, waste,
-  closings, cash_moves, stock_counts, debug_pings TO app_writer;
+  closings, cash_moves, stock_counts, debug_pings, credit_events, purchases TO app_writer;
 -- No SELECT, UPDATE, DELETE. Bare "ON CONFLICT DO NOTHING" needs only INSERT.

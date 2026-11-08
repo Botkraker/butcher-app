@@ -64,6 +64,15 @@ object Neon {
             listOf("uuid" to 'u', "product_uuid" to 'u', "kg" to 'r', "device_time" to 't'),
             { d -> d.unsentStockCounts().map { it.uuid to listOf(it.uuid, it.productUuid, it.kg, it.deviceTime) } },
             { d, ids -> d.markStockCounts(ids) }),
+        // v2 tables last: if Neon misses them, the old tables still go up first.
+        SyncTable("credit_events",
+            listOf("uuid" to 'u', "person" to 's', "amount" to 'r', "kind" to 's', "sale_uuid" to 'u', "device_time" to 't'),
+            { d -> d.unsentCreditEvents().map { it.uuid to listOf(it.uuid, it.person, it.amount, it.kind, it.saleUuid, it.deviceTime) } },
+            { d, ids -> d.markCreditEvents(ids) }),
+        SyncTable("purchases",
+            listOf("uuid" to 'u', "item" to 's', "kg" to 'r', "price_per_kg" to 'r', "cost" to 'r', "paid" to 'r', "device_time" to 't'),
+            { d -> d.unsentPurchases().map { it.uuid to listOf(it.uuid, it.item, it.kg, it.pricePerKg, it.cost, it.paid, it.deviceTime) } },
+            { d, ids -> d.markPurchases(ids) }),
     )
 
     /** One statement: bare INSERT ... ON CONFLICT DO NOTHING (no target, no RETURNING). */

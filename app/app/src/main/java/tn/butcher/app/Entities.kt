@@ -34,7 +34,7 @@ data class Sale(
     val total: Double,
     val pricePerKg: Double,
     val kg: Double,
-    val kind: String, // paid | discount | free
+    val kind: String, // paid | discount | free (free is old, no longer created)
     val credit: Boolean,
     val deviceTime: Long,
     val synced: Boolean = false,
@@ -90,6 +90,31 @@ data class StockCount(
     @PrimaryKey val uuid: String,
     val productUuid: String,
     val kg: Double,
+    val deviceTime: Long,
+    val synced: Boolean = false,
+)
+
+/** A customer debt (debt) or a payment back (pay). saleUuid links a credit sale. */
+@Entity(tableName = "credit_events")
+data class CreditEvent(
+    @PrimaryKey val uuid: String,
+    val person: String,
+    val amount: Double,
+    val kind: String, // debt | pay
+    val saleUuid: String?,
+    val deviceTime: Long,
+    val synced: Boolean = false,
+)
+
+/** A supplier purchase. item is empty for a payment only. cost = kg * pricePerKg. */
+@Entity(tableName = "purchases")
+data class Purchase(
+    @PrimaryKey val uuid: String,
+    val item: String,
+    val kg: Double,
+    val pricePerKg: Double,
+    val cost: Double,
+    val paid: Double,
     val deviceTime: Long,
     val synced: Boolean = false,
 )
