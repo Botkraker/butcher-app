@@ -60,6 +60,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.room.withTransaction
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -88,6 +89,9 @@ object T {
     const val MORE = "سلعة أخرى"
     const val PICK = "اختار السلعة"
     const val NEXT = "كمّل"
+    const val ARRANGE = "رتّب"
+    const val ARRANGE_HELP = "اضغط على سلعة، وبعد اضغط على البلاصة اللي تحبّها فيها"
+    const val DONE = "خلاص"
     const val HISTORY = "البيعات"
     const val OLDER = "اللي قبل"
     const val NO_SALES = "ما فما حتى بيعة"
@@ -163,6 +167,12 @@ class Repo(private val ctx: Context) {
     val livePurchases = dao.livePurchases()
     val liveCashMoves = dao.liveCashMoves()
     fun salesSince(since: Long) = dao.salesSince(since)
+    val order = MutableStateFlow(Prefs.order(ctx))
+
+    fun setOrder(ids: List<String>) {
+        Prefs.setOrder(ctx, ids)
+        order.value = ids
+    }
 
     private fun kick() = SyncWorker.enqueue(ctx)
 
@@ -268,8 +278,8 @@ fun Plain(
     size: TextUnit = 28.sp,
     onClick: () -> Unit,
 ) {
-    val bg = when { !enabled || dim -> Color(0xFFEEEEEE); on -> Color.Black; else -> fill }
-    val fg = when { !enabled || dim -> Color.Gray; on -> Color.White; else -> Color.Black }
+    val bg = when { !enabled -> Color(0xFFEEEEEE); on -> Color.Black; dim -> Color(0xFFEEEEEE); else -> fill }
+    val fg = when { !enabled -> Color.Gray; on -> Color.White; dim -> Color.Gray; else -> Color.Black }
     Box(
         modifier.background(bg).border(1.dp, Color.Black)
             .clickable(enabled = enabled, onClick = onClick).padding(2.dp),
@@ -383,9 +393,15 @@ fun <E> PagedGrid(items: List<E>, rows: Int, cols: Int, modifier: Modifier, cell
 
 /** Green has a price, grey has none. */
 @Composable
-fun ProductGrid(products: List<ProductView>, modifier: Modifier, pickable: (ProductView) -> Boolean = { true }, onTap: (ProductView) -> Unit) {
+fun ProductGrid(
+    products: List<ProductView>,
+    modifier: Modifier,
+    pickable: (ProductView) -> Boolean = { true },
+    highlight: String? = null,
+    onTap: (ProductView) -> Unit,
+) {
     PagedGrid(products, 4, 5, modifier) { p, m ->
-        Plain(p.name, m, enabled = pickable(p), dim = p.price <= 0, fill = Color(0xFFA5D6A7), size = 20.sp) { onTap(p) }
+        Plain(p.name, m, on = p.uuid == highlight, enabled = pickable(p), dim = p.price <= 0, fill = Color(0xFFA5D6A7), size = 20.sp) { onTap(p) }
     }
 }
 
@@ -478,7 +494,10 @@ fun Readout(label: String, value: String, active: Boolean, modifier: Modifier, o
 @Composable
 fun SaleScreen(repo: Repo, back: () -> Unit) {
     val scope = rememberCoroutineScope()
-    val products = foldProducts(repo.productEvents.collectAsState(emptyList()).value).filter { !it.hidden }
+    val products = sortProducts(
+        foldProducts(repo.productEvents.collectAsState(emptyList()).value).filter { !it.hidden },
+        repo.order.collectAsState().value,
+    )
     val lastSale by repo.lastLiveSale.collectAsState(null)
     val people = peopleByRecent(repo.creditEvents.collectAsState(emptyList()).value)
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
@@ -561,14 +580,18 @@ fun SaleScreen(repo: Repo, back: () -> Unit) {
 @Composable
 fun ProductsScreen(repo: Repo, back: () -> Unit) {
     val scope = rememberCoroutineScope()
-    val products = foldProducts(repo.productEvents.collectAsState(emptyList()).value).filter { !it.hidden }
+    val products = sortProducts(
+        foldProducts(repo.productEvents.collectAsState(emptyList()).value).filter { !it.hidden },
+        repo.order.collectAsState().value,
+    )
     var mode by rememberSaveable { mutableStateOf("list") }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
+    var moving by rememberSaveable { mutableStateOf<String?>(null) }
     var name by rememberSaveable { mutableStateOf("") }
     var price by rememberSaveable { mutableStateOf("") }
     val product = products.firstOrNull { it.uuid == selected }
     val pr = num(price)
-    val clear = { mode = "list"; selected = null; name = ""; price = "" }
+    val clear = { mode = "list"; selected = null; moving = null; name = ""; price = "" }
     BackHandler(enabled = mode != "list") { clear() }
 
     when (mode) {
@@ -576,12 +599,31 @@ fun ProductsScreen(repo: Repo, back: () -> Unit) {
             Bar {
                 Small(T.BACK, onClick = back)
                 Title(T.GOODS, Modifier.weight(1f))
+                Small(T.ARRANGE) { clear(); mode = "arrange" }
                 Small(T.NEW, width = 180) { clear(); mode = "name" }
             }
             ProductGrid(products, Modifier.weight(1f).fillMaxWidth()) {
                 selected = it.uuid
                 price = if (it.price > 0) it.price.toString() else ""
                 mode = "price"
+            }
+        }
+        // Tap a product (it turns black), then tap the place where it should go.
+        "arrange" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Bar {
+                Title(T.ARRANGE_HELP, Modifier.weight(1f))
+                Small(T.DONE, onClick = clear)
+            }
+            ProductGrid(products, Modifier.weight(1f).fillMaxWidth(), highlight = moving) { p ->
+                val m = moving
+                when {
+                    m == null -> { moving = p.uuid }
+                    m == p.uuid -> { moving = null }
+                    m != null -> {
+                        repo.setOrder(moveTo(products.map { it.uuid }, m, p.uuid))
+                        moving = null
+                    }
+                }
             }
         }
         "name" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {

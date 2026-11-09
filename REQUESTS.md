@@ -12,6 +12,7 @@ Status: `todo` → `built` → `done` (or `skip`).
 | 3 | Voice input (Tunisian) | built | No offline Whisper on this phone. Uses the phone's own voice typing (ar-TN) on the 🎤 button; needs Google voice typing, usually needs internet. |
 | 4 | Personal spending (مصروف الدار): money taken from the till, with optional details | built | Saved in `cash_moves` as a negative amount. |
 | 5 | Supplier purchases (الشراء): item, kg, price per kg, cost, money given. Suggests old items and fills their last kg and price. | built | Also "pay only" for paying an old debt. Shows what you still owe. |
+| 7 | Arrange the products yourself (order used in بيعة and السلعة) | built | السلعة → رتّب. The order stays on the phone; it is not sent to Neon. |
 | 6 | Dashboard (الملخّص): filter by days, products grouped with kg and money | built | Placeholder. To discuss with a data scientist. |
 
 ## Phone test steps
@@ -23,6 +24,7 @@ Build with Run ▶ on the same PC. Do not uninstall. Then:
 - **4.** مصروف الدار → amount → كمّل → details (or none) → سجّل. فسّخ removes the last one.
 - **5.** الشراء → type a new item → كمّل → kg, price, money given → سجّل. Come back, type the first letters: the item is suggested. Tap it: the last kg and price are filled in. Change kg, save. Next time the new kg is filled in. "خلّص برك" records money given without an item.
 - **6.** الملخّص → اليوم / 3 أيام / جمعة / شهر change the numbers. "فلوس الكاسة" = sales not on credit + credit paid back − money given to the supplier − house spending.
+- **7.** السلعة → رتّب → tap a product (it turns black) → tap the place you want. It moves there. خلاص. Open بيعة: same order. Close and reopen the app: the order stays.
 - **Sync.** After running the Neon SQL, press جرّب الانترنت → ابعث الكل توا: it says OK.
 
 ## Backlog (from the team review, not yet asked for)

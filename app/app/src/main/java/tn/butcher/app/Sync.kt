@@ -162,4 +162,8 @@ object Prefs {
     private fun p(ctx: Context) = ctx.getSharedPreferences("butcher", Context.MODE_PRIVATE)
     fun lastSync(ctx: Context): Long = p(ctx).getLong("last_sync", 0L)
     fun setLastSync(ctx: Context, t: Long) = p(ctx).edit().putLong("last_sync", t).apply()
+
+    /** Product order chosen by the butcher. Screen layout only, so it stays on the phone and is not synced. */
+    fun order(ctx: Context): List<String> = p(ctx).getString("product_order", "")!!.split(",").filter { it.isNotEmpty() }
+    fun setOrder(ctx: Context, ids: List<String>) = p(ctx).edit().putString("product_order", ids.joinToString(",")).apply()
 }

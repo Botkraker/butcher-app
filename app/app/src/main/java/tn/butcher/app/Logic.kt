@@ -41,6 +41,25 @@ fun canonical(name: String, known: List<String>): String {
     return known.firstOrNull { it.equals(n, ignoreCase = true) } ?: n
 }
 
+/** Puts products in the saved order. Products not in it (new ones) go at the end, oldest first. */
+fun sortProducts(products: List<ProductView>, order: List<String>): List<ProductView> {
+    val idx = order.withIndex().associate { it.value to it.index }
+    return products.withIndex()
+        .sortedWith(compareBy({ idx[it.value.uuid] ?: Int.MAX_VALUE }, { it.index }))
+        .map { it.value }
+}
+
+/** Moves item to the place of target. The others shift by one. */
+fun moveTo(ids: List<String>, item: String, target: String): List<String> {
+    val from = ids.indexOf(item)
+    val to = ids.indexOf(target)
+    if (from < 0 || to < 0 || from == to) return ids
+    val m = ids.toMutableList()
+    m.removeAt(from)
+    m.add(to, item)
+    return m
+}
+
 /** Names, most recent first. Events come newest first from the DAO. */
 fun peopleByRecent(events: List<CreditEvent>): List<String> = events.map { it.person }.distinct()
 
