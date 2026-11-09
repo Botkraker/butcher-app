@@ -1,11 +1,12 @@
 # Butcher app (first slice)
 
 Kotlin, Compose, Room, WorkManager. minSdk 24. Arabic, right-to-left.
-Slice: Home, Sale with undo, Products, sync worker, debug screen.
-Not built yet: Carcass, Closing, stock, waste screens (their tables exist).
+Screens: sale (with undo and credit), goods and prices (arrangeable), sales history (edit, cancel), credit, supplier purchases, house spending, simple dashboard, debug.
+Local Room database, append-only rows with client UUIDs, background sync to Neon. Voice input uses the phone's own speech recognition (ar-TN).
+Not built yet: backup file, stock count, daily closing, waste.
 
 ## Neon setup
-1. Open `neon_schema.sql`. Replace `CHANGE_ME_PLACEHOLDER` with a real password.
+1. Open `neon_schema.sql`. Replace `CHANGE_ME` with a real password.
 2. Run it in the Neon SQL editor.
 3. Copy `local.properties.example` to `local.properties`.
 4. Set `sdk.dir`, `neon.sql.url` (`https://<host>/sql`) and `neon.connection.string` (role `app_writer`).
