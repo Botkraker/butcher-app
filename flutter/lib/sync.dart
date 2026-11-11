@@ -135,8 +135,12 @@ Future<String?> pushAll(Database db, Prefs prefs, Neon neon, {int Function()? cl
   return errors.isEmpty ? null : errors.join('\n');
 }
 
+/// Wait before the next try after [fails] failed runs: 30 s, 1 min, 2 min, 4 min, then 5 min.
+/// Short cap: there is no network signal, so a short wait is how the app notices the internet came back.
+int retryDelay(int fails) => min(30 * (1 << min(fails, 10)), 300);
+
 /// Replaces the Kotlin WorkManager job while the app is open: runs after every save and at start,
-/// one run at a time, and retries a failure after 30 s, 60 s, 120 s ... (max 5 h).
+/// one run at a time, and retries a failure after [retryDelay].
 class Syncer {
   Syncer(this.run);
   final Future<String?> Function() run;
@@ -172,9 +176,8 @@ class Syncer {
     if (err == null) {
       _fails = 0;
     } else {
-      final s = min(30 * pow(2, _fails).toInt(), 5 * 3600);
+      _retry = Timer(Duration(seconds: retryDelay(_fails)), kick);
       _fails++;
-      _retry = Timer(Duration(seconds: s), kick);
     }
   }
 

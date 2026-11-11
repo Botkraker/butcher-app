@@ -180,6 +180,16 @@ void main() {
     await tap(tester, 'محمد علي'); // the old name as a button
     await tap(tester, T.save);
     expect(balances(liveCredits(w.repo.creditEvents, w.repo.voidedIds.toSet())), {'محمد علي': 40.0});
+
+    // Typed again with other spaces: still one person, one balance.
+    await tap(tester, 'علوش');
+    await type(tester, '2');
+    await tap(tester, T.credit);
+    await tap(tester, T.next);
+    await tester.enterText(find.byType(TextField), 'محمد    علي ');
+    await settle(tester);
+    await tap(tester, T.save);
+    expect(balances(liveCredits(w.repo.creditEvents, w.repo.voidedIds.toSet())), {'محمد علي': 42.0});
   });
 
   testWidgets('voice fills the name box', (tester) async {
@@ -303,9 +313,12 @@ void main() {
   });
 
   testWidgets('dashboard totals and filters', (tester) async {
-    await start(tester, data: (r) async {
+    var t = DateTime.now().subtract(const Duration(days: 5)).millisecondsSinceEpoch;
+    await start(tester, clock: () => t, data: (r) async {
       await prices(r);
       final p = foldProducts(r.productEvents);
+      await r.addSale(p[0], 'paid', 50, null, null); // 5 days ago: only in جمعة and شهر
+      t = DateTime.now().millisecondsSinceEpoch;
       await r.addSale(p[0], 'paid', 76, null, null);
       await r.addSale(p[0], 'paid', 38, null, 'علي');
       await r.addSale(p[4], 'paid', 90, null, null);
@@ -320,8 +333,21 @@ void main() {
     // 204 - 38 + 10 - 500 - 20
     expect(find.text('${T.cash}: -344'), findsOneWidget);
     expect(find.text('علوش   3 ${T.kg}   114 ${T.dt}'), findsOneWidget);
-    await tap(tester, T.week);
+    await tap(tester, T.days3);
     expect(find.text('${T.sold}: 204'), findsOneWidget);
+    await tap(tester, T.week);
+    expect(find.text('${T.sold}: 254'), findsOneWidget);
+    expect(find.text('علوش   4.316 ${T.kg}   164 ${T.dt}'), findsOneWidget);
+  });
+
+  testWidgets('a failed save shows a red message', (tester) async {
+    final w = await start(tester, data: prices);
+    await tester.runAsync(() => w.db.execute('DROP TABLE sales')); // makes the next sale fail
+    await tap(tester, T.sell);
+    await tap(tester, 'علوش');
+    await type(tester, '38');
+    await tap(tester, T.save);
+    expect(find.textContaining(T.saveFailed), findsOneWidget);
   });
 
   testWidgets('debug screen without Neon address says so', (tester) async {

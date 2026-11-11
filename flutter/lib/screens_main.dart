@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 
@@ -116,7 +114,7 @@ class _SaleScreenState extends State<SaleScreen> {
       final t = totalNum;
       final who = credit ? canonical(person, people) : null;
       if (p != null && t != null && valid && who != '') {
-        unawaited(repo.addSale(p, kind, t, discount ? kgNum : null, who));
+        guard(context, repo.addSale(p, kind, t, discount ? kgNum : null, who));
         reset();
       }
     }
@@ -140,7 +138,7 @@ class _SaleScreenState extends State<SaleScreen> {
           barTitle(T.pick),
           Small(s != null ? '${T.undo} $lastName ${fmtNum(s.total)}' : T.undo,
               enabled: s != null, width: 240, onTap: () {
-            if (s != null) unawaited(repo.undoSale(s));
+            if (s != null) guard(context, repo.undoSale(s));
           }),
         ]),
         Expanded(child: productGrid(products, pickable: (p) => p.price > 0, onTap: (p) => setState(() => selected = p.uuid))),
@@ -281,7 +279,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
             w(1, Plain(T.back, size: 20, onTap: clear)),
             if (product != null)
               w(1, Plain(T.remove, size: 20, onTap: () {
-                unawaited(repo.hide(product));
+                guard(context, repo.hide(product));
                 clear();
               })),
             w(1.5, Plain(product == null ? T.add : T.save, enabled: pr != null && pr > 0, size: 24, onTap: () {
@@ -289,7 +287,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
               if (v == null) return;
               final p = product;
               final n = name.trim();
-              unawaited(p != null ? repo.setPrice(p, v) : repo.addProduct(n, v));
+              guard(context, p != null ? repo.setPrice(p, v) : repo.addProduct(n, v));
               clear();
             })),
           ])),
@@ -368,7 +366,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         w(1, Readout(free ? T.kilo : T.total, value, true, onTap: () {})),
         w(1, Plain(T.back, size: 20, onTap: clear)),
         w(1, Plain(T.undo, size: 20, onTap: () {
-          unawaited(repo.undoSale(sale));
+          guard(context, repo.undoSale(sale));
           clear();
         })),
         w(1.5, Plain(T.save, enabled: v != null && v > 0, size: 24, onTap: () {
@@ -380,7 +378,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             'paid' => r3(n / sale.pricePerKg),
             _ => sale.kg,
           };
-          unawaited(repo.editSale(sale, total, kg));
+          guard(context, repo.editSale(sale, total, kg));
           clear();
         })),
       ])),

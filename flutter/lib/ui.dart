@@ -5,6 +5,18 @@ import 'native.dart';
 import 't.dart';
 
 const gap = 4.0;
+
+/// Runs a save. If it fails, a red message tells the butcher, so he never believes a lost row was kept.
+void guard(BuildContext context, Future<void> f) {
+  final m = ScaffoldMessenger.maybeOf(context);
+  f.catchError((Object e) {
+    m?.showSnackBar(SnackBar(
+      backgroundColor: Colors.red,
+      duration: const Duration(seconds: 6),
+      content: Text('${T.saveFailed}\n$e', style: const TextStyle(fontSize: 20, color: Colors.white)),
+    ));
+  });
+}
 const green = Color(0xFFA5D6A7);
 
 /// Puts a 4 dp gap between children, like Arrangement.spacedBy(4.dp).

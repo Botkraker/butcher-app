@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 
@@ -40,7 +38,7 @@ class _CreditScreenState extends State<CreditScreen> {
       final v = a;
       final p = canonical(person, people);
       if (v != null && v > 0 && p.isNotEmpty) {
-        unawaited(repo.addCredit(p, v, kind));
+        guard(context, repo.addCredit(p, v, kind));
         clear();
       }
     }
@@ -62,7 +60,7 @@ class _CreditScreenState extends State<CreditScreen> {
             barTitle(T.credits),
             Small(u != null ? '${T.undo} ${u.person} $sign${fmtNum(u.amount)}' : T.undo, enabled: u != null, width: 240,
                 onTap: () {
-              if (u != null) unawaited(repo.voidRow('credit_events', u.uuid));
+              if (u != null) guard(context, repo.voidRow('credit_events', u.uuid));
             }),
             Small(T.newPerson, width: 150, onTap: () {
               clear();
@@ -160,7 +158,7 @@ class _SpendingScreenState extends State<SpendingScreen> {
           final v = a;
           final d = cleanName(details);
           if (v != null && v > 0) {
-            unawaited(repo.addSpending(v, d));
+            guard(context, repo.addSpending(v, d));
             clear();
           }
         },
@@ -175,7 +173,7 @@ class _SpendingScreenState extends State<SpendingScreen> {
         w(1, Readout(T.amount, amount, true, onTap: () {})),
         w(1, Plain(T.back, size: 20, onTap: c.back)),
         w(1, Plain(u != null ? '${T.undo} ${fmtNum(-u.amount)}' : T.undo, enabled: u != null, size: 20, onTap: () {
-          if (u != null) unawaited(repo.voidRow('cash_moves', u.uuid));
+          if (u != null) guard(context, repo.voidRow('cash_moves', u.uuid));
         })),
         w(1.5, Plain(T.next, enabled: a != null && a > 0, size: 24, onTap: () => setState(() => mode = 'details'))),
       ])),
@@ -248,7 +246,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
         extra: [
           Small(u != null ? '${T.undo} ${u.item.isEmpty ? fmtNum(u.paid) : u.item}' : T.undo, enabled: u != null, width: 150,
               onTap: () {
-            if (u != null) unawaited(repo.voidRow('purchases', u.uuid));
+            if (u != null) guard(context, repo.voidRow('purchases', u.uuid));
           }),
           Small(T.payOnly, width: 120, onTap: () => setState(() {
                 item = '';
@@ -299,7 +297,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
             final kv = k ?? 0.0;
             final pv = p ?? 0.0;
             final gv = g;
-            unawaited(repo.addPurchase(i, payOnly ? 0.0 : kv, payOnly ? 0.0 : pv, gv));
+            guard(context, repo.addPurchase(i, payOnly ? 0.0 : kv, payOnly ? 0.0 : pv, gv));
             clear();
           })),
         ])),

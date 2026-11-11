@@ -82,6 +82,24 @@ void main() {
     expect((await Dao(db).unsent('credit_events')).length, 1);
   });
 
+  test('a failed table in the middle: the tables after it still go up', () async {
+    await repo.addSale(const ProductView('p1', 'علوش', 38, false), 'paid', 76, null, 'علي'); // sales + credit_events
+    await repo.addPurchase('علوش كامل', 30, 28, 500); // purchases, the last table
+    final client =
+        MockClient((r) async => r.body.contains('INSERT INTO sales ') ? http.Response('bad', 500) : http.Response('{}', 200));
+    final err = await pushAll(db, Prefs(native), Neon(client, url: 'https://h/sql', conn: 'c'));
+    expect(err, startsWith('sales: HTTP 500'));
+    expect((await Dao(db).unsent('sales')).length, 1);
+    expect(await Dao(db).unsent('credit_events'), isEmpty);
+    expect(await Dao(db).unsent('purchases'), isEmpty);
+  });
+
+  test('retry wait grows and stops at 5 minutes, even after many failures', () {
+    expect([for (var i = 0; i < 6; i++) retryDelay(i)], [30, 60, 120, 240, 300, 300]);
+    expect(retryDelay(59), 300);
+    expect(retryDelay(1000), 300);
+  });
+
   test('no network: error text, nothing marked', () async {
     await repo.addProduct('علوش', 38);
     final client = MockClient((r) async => throw const SocketException('no route'));

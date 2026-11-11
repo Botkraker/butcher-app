@@ -13,6 +13,7 @@ Status: `todo` → `built` → `done` (or `skip`).
 | 4 | Personal spending (مصروف الدار): money taken from the till, with optional details | built | Saved in `cash_moves` as a negative amount. |
 | 5 | Supplier purchases (الشراء): item, kg, price per kg, cost, money given. Suggests old items and fills their last kg and price. | built | Also "pay only" for paying an old debt. Shows what you still owe. |
 | 7 | Arrange the products yourself (order used in بيعة and السلعة) | built | السلعة → رتّب. The order stays on the phone; it is not sent to Neon. |
+| 8 | Move to Flutter, same app, and let Claude test it | built | `flutter/`. 49 tests on the PC + screen images. Run: see `flutter/README.md`. Sync runs while the app is open (no background). |
 | 6 | Dashboard (الملخّص): filter by days, products grouped with kg and money | built | Placeholder. To discuss with a data scientist. |
 
 ## Phone test steps

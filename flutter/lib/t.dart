@@ -57,6 +57,7 @@ class T {
   static const creditBack = 'رجّعوا';
   static const kg = 'كغ';
   static const dt = 'د';
+  static const saveFailed = 'ما تسجّلتش! عاود';
 }
 
 /// Pre-built list, added once on first run. Prices start empty; he sets them.
