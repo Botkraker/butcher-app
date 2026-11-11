@@ -54,6 +54,10 @@ class Prefs {
       (await kv.getString('butcher', 'product_order') ?? '').split(',').where((s) => s.isNotEmpty).toList();
   Future<void> setOrder(List<String> ids) => kv.putString('butcher', 'product_order', ids.join(','));
 
+  /// Where the last read from Neon stopped, per table (uploaded_at in microseconds).
+  Future<int> pullCursor(String table) async => await kv.getLong('butcher', 'pull_$table') ?? 0;
+  Future<void> setPullCursor(String table, int us) => kv.putLong('butcher', 'pull_$table', us);
+
   Future<bool> seedDone() async => await kv.getBool('seed', 'done') ?? false;
   Future<void> setSeedDone() => kv.putBool('seed', 'done', true);
 }

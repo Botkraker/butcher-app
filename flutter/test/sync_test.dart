@@ -100,6 +100,116 @@ void main() {
     expect(retryDelay(1000), 300);
   });
 
+  group('pull (Neon to phone)', () {
+    // A fake Neon that answers reads with the rows given, as text, like the real one with ::text casts.
+    MockClient neonWith(Map<String, List<Map<String, Object?>>> tables, {List<String>? asked}) => MockClient((r) async {
+          final body = jsonDecode(r.body) as Map<String, dynamic>;
+          if (body.containsKey('queries')) return http.Response('{}', 200); // a send
+          final q = body['query'] as String;
+          asked?.add(q);
+          final table = q.split(' FROM ')[1].split(' ')[0];
+          final cursor = int.parse((body['params'] as List)[0] as String);
+          final rows = (tables[table] ?? []).where((x) => int.parse(x['uploaded_us'] as String) >= cursor).toList();
+          return http.Response.bytes(utf8.encode(jsonEncode({'rows': rows})), 200); // no charset, like Neon
+        });
+
+    test('the read query asks every column as text, in milliseconds', () {
+      final q = pullQuery(syncTables[2], 123);
+      expect(q['query'], startsWith('SELECT uuid::text AS uuid, product_uuid::text AS product_uuid, total::text AS total, '));
+      expect(q['query'], contains('(extract(epoch from device_time) * 1000)::bigint::text AS device_time'));
+      expect(q['query'], contains('FROM sales WHERE uploaded_at >= to_timestamp(\$1::double precision / 1000000)'));
+      expect(q['params'], ['123']);
+    });
+
+    test('rows from another phone come down once, marked sent; a void from Neon cancels the sale', () async {
+      final neon = Neon(
+          neonWith({
+            'sales': [
+              {'uuid': 's9', 'product_uuid': 'p1', 'total': '76', 'price_per_kg': '38', 'kg': '2', 'kind': 'paid',
+                'credit': 'true', 'device_time': '1700000000000', 'uploaded_us': '1700000000000001'},
+            ],
+            'credit_events': [
+              {'uuid': 'c9', 'person': 'علي', 'amount': '76', 'kind': 'debt', 'sale_uuid': 's9',
+                'device_time': '1700000000000', 'uploaded_us': '1700000000000002'},
+            ],
+            'product_events': [
+              {'uuid': 'e9', 'product_uuid': 'p1', 'name': 'علوش', 'kind': 'hide', 'price_per_kg': null,
+                'device_time': '1', 'uploaded_us': '5'},
+            ],
+          }),
+          url: 'https://h/sql',
+          conn: 'c');
+      expect(await pullAll(db, Prefs(native), neon), isNull);
+      expect(await pullAll(db, Prefs(native), neon), isNull); // twice: still one row each
+      final d = Dao(db);
+      final s = (await d.liveSales()).single;
+      expect([s.uuid, s.total, s.kg, s.credit, s.deviceTime, s.synced], ['s9', 76.0, 2.0, true, 1700000000000, true]);
+      expect((await d.creditEvents()).single.saleUuid, 's9');
+      expect((await d.creditEvents()).single.person, 'علي'); // Arabic survives the trip
+      expect((await d.productEvents()).single.pricePerKg, isNull);
+      expect(await d.unsent('sales'), isEmpty); // not sent back
+      expect(await Prefs(native).pullCursor('sales'), 1700000000000001);
+      expect(await Prefs(native).lastSync(), greaterThan(0));
+
+      final withVoid = Neon(
+          neonWith({
+            'voids': [
+              {'uuid': 'v9', 'target_table': 'sales', 'target_uuid': 's9', 'device_time': '1700000001000',
+                'uploaded_us': '1700000001000000'},
+            ],
+          }),
+          url: 'https://h/sql',
+          conn: 'c');
+      await pullAll(db, Prefs(native), withVoid);
+      expect(await d.liveSales(), isEmpty);
+    });
+
+    test('a row the phone already has is not changed', () async {
+      await repo.addSpending(10, 'ضو');
+      final mine = (await Dao(db).liveCashMoves()).single;
+      final neon = Neon(
+          neonWith({
+            'cash_moves': [
+              {'uuid': mine.uuid, 'amount': '-999', 'reason': 'x', 'device_time': '1', 'uploaded_us': '9'},
+            ],
+          }),
+          url: 'https://h/sql',
+          conn: 'c');
+      await pullAll(db, Prefs(native), neon);
+      expect((await Dao(db).liveCashMoves()).single.amount, -10.0);
+    });
+
+    test('a full page asks again from the newest time; it stops', () async {
+      final many = [
+        for (var i = 0; i < pullPage + 20; i++)
+          {'uuid': 'u$i', 'amount': '-1', 'reason': '', 'device_time': '1', 'uploaded_us': '${1000 + i ~/ 50}'},
+      ];
+      final asked = <String>[];
+      final client = MockClient((r) async {
+        final body = jsonDecode(r.body) as Map<String, dynamic>;
+        final q = body['query'] as String;
+        if (!q.contains('FROM cash_moves ')) return http.Response('{"rows":[]}', 200);
+        asked.add(q);
+        final cursor = int.parse((body['params'] as List)[0] as String);
+        final rows = many.where((x) => int.parse(x['uploaded_us']!) >= cursor).take(pullPage).toList();
+        return http.Response.bytes(utf8.encode(jsonEncode({'rows': rows})), 200); // no charset, like Neon
+      });
+      expect(await pullAll(db, Prefs(native), Neon(client, url: 'https://h/sql', conn: 'c')), isNull);
+      expect((await Dao(db).liveCashMoves()).length, pullPage + 20);
+      expect(asked.length, 2);
+    });
+
+    test('reading not allowed yet (no GRANT): error text, the phone data stays', () async {
+      await repo.addProduct('علوش', 38);
+      final client = MockClient((r) async => r.body.contains('"queries"')
+          ? http.Response('{}', 200)
+          : http.Response('{"message":"permission denied for table product_events"}', 400));
+      final err = await pullAll(db, Prefs(native), Neon(client, url: 'https://h/sql', conn: 'c'));
+      expect(err, contains('permission denied'));
+      expect((await Dao(db).productEvents()).length, 1);
+    });
+  });
+
   test('no network: error text, nothing marked', () async {
     await repo.addProduct('علوش', 38);
     final client = MockClient((r) async => throw const SocketException('no route'));

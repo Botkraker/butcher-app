@@ -97,6 +97,16 @@ class Neon {
 
   bool get configured => url.isNotEmpty;
 
+  /// One read query. Returns HTTP code and body ({"rows": [{column: value}], ...}).
+  Future<(int, String)> select(Map<String, Object?> query) async {
+    final r = await client
+        .post(Uri.parse(url),
+            headers: {'Content-Type': 'application/json', 'Neon-Connection-String': conn},
+            body: jsonEncode(query))
+        .timeout(const Duration(seconds: 45));
+    return (r.statusCode, utf8.decode(r.bodyBytes)); // Neon sends UTF-8; the default would garble Arabic
+  }
+
   /// Sends statements as one batch (one transaction). Returns HTTP code and body.
   Future<(int, String)> post(List<Map<String, Object?>> queries) async {
     final r = await client
@@ -104,7 +114,7 @@ class Neon {
             headers: {'Content-Type': 'application/json', 'Neon-Connection-String': conn},
             body: jsonEncode({'queries': queries}))
         .timeout(const Duration(seconds: 45));
-    return (r.statusCode, r.body);
+    return (r.statusCode, utf8.decode(r.bodyBytes)); // Neon sends UTF-8; the default would garble Arabic
   }
 }
 
@@ -131,6 +141,73 @@ Future<String?> pushAll(Database db, Prefs prefs, Neon neon, {int Function()? cl
     }
   } catch (e) {
     errors.add('${e.runtimeType}: $e');
+  }
+  return errors.isEmpty ? null : errors.join('\n');
+}
+
+/// Rows read per request. An upload batch is at most 100 rows with one uploaded_at, so a page always moves on.
+const pullPage = 500;
+
+String _sel(String col, String type) =>
+    type == 't' ? '(extract(epoch from $col) * 1000)::bigint::text AS $col' : '$col::text AS $col';
+
+/// Rows of one table that reached Neon at or after [cursorUs] (microseconds), oldest first. Every value as text.
+Map<String, Object?> pullQuery(SyncTable t, int cursorUs) {
+  final cols = [...t.cols.map((c) => _sel(c.$1, c.$3)), '(extract(epoch from uploaded_at) * 1000000)::bigint::text AS uploaded_us'];
+  return {
+    'query': 'SELECT ${cols.join(', ')} FROM ${t.name} '
+        'WHERE uploaded_at >= to_timestamp(\$1::double precision / 1000000) ORDER BY uploaded_at, uuid LIMIT $pullPage',
+    'params': [cursorUs.toString()],
+  };
+}
+
+/// A Neon text value as the local (Room) column stores it.
+Object? _local(Object? v, String type) {
+  if (v == null) return null;
+  final s = v.toString();
+  return switch (type) {
+    'r' => double.parse(s),
+    't' => int.parse(s),
+    'b' => s == 'true' || s == 't' ? 1 : 0,
+    _ => s,
+  };
+}
+
+/// Brings down every row the phone does not have yet (from another phone, or after a reinstall).
+/// Rows are append-only with a UUID key, so a row the phone already has is skipped, never changed.
+/// Returns null when every table was read, else the error text.
+Future<String?> pullAll(Database db, Prefs prefs, Neon neon, {int Function()? clock}) async {
+  final now = clock ?? () => DateTime.now().millisecondsSinceEpoch;
+  final errors = <String>[];
+  try {
+    for (final t in syncTables) {
+      var cursor = await prefs.pullCursor(t.name);
+      while (true) {
+        final (code, body) = await neon.select(pullQuery(t, cursor));
+        if (code != 200) {
+          errors.add('${t.name} (read): HTTP $code $body');
+          break;
+        }
+        final rows = ((jsonDecode(body) as Map<String, dynamic>)['rows'] as List).cast<Map<String, dynamic>>();
+        await db.transaction((txn) async {
+          for (final r in rows) {
+            await txn.insert(t.name, {for (final c in t.cols) c.$2: _local(r[c.$1], c.$3), 'synced': 1},
+                conflictAlgorithm: ConflictAlgorithm.ignore);
+          }
+        });
+        var next = cursor;
+        for (final r in rows) {
+          next = max(next, int.parse(r['uploaded_us'].toString()));
+        }
+        final done = rows.length < pullPage || next == cursor;
+        cursor = next;
+        await prefs.setPullCursor(t.name, cursor);
+        if (done) break;
+      }
+    }
+    if (errors.isEmpty) await prefs.setLastSync(now());
+  } catch (e) {
+    errors.add('read: ${e.runtimeType}: $e');
   }
   return errors.isEmpty ? null : errors.join('\n');
 }
